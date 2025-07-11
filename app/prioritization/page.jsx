@@ -1,4 +1,3 @@
-//app/prioritization/page.jsx
 "use client";
 
 import { useState, useEffect } from "react";
@@ -13,11 +12,15 @@ export default function PrioritizationPage() {
 
   const [mainAncestry, setMainAncestry] = useState("");
   const [ancestryOptions, setAncestryOptions] = useState([]);
-  const [ancestryMap, setAncestryMap] = useState([]); // NUEVO: mantiene symbol-label pareado
+  const [ancestryMap, setAncestryMap] = useState([]);
 
-  const [results, setResults] = useState([]);
   const [selectedItems, setSelectedItems] = useState([]);
-  // Cargar ancestría y traits desde la URL
+  const [results, setResults] = useState([]);
+
+  const [loading, setLoading] = useState(false);
+  const [hasSearched, setHasSearched] = useState(false);
+
+  // Obtener traits y ancestrías desde la URL
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search);
     const ancestryParam = searchParams.get("ancestries");
@@ -28,7 +31,6 @@ export default function PrioritizationPage() {
     setSymbolsFromURL(symbols);
     setTraits(traitsParam ? traitsParam.split(",") : []);
 
-    // Agrega esto para que selectedItems tenga los traits
     const traitItemsFromURL = traitsParam
       ? traitsParam.split(",").map((id) => ({
         id,
@@ -41,34 +43,33 @@ export default function PrioritizationPage() {
     setSelectedItems(traitItemsFromURL);
   }, []);
 
-
-  console.log("Traits en la URL:", traits);
-  console.log("Ancestries en la URL:", ancestry);
-
-  // Cargar labels y mapear symbol-label desde el backend
+  // Obtener listado de ancestrías
   useEffect(() => {
-    if (symbolsFromURL.length === 0) return;
-
     fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/ancestries`)
       .then((res) => res.json())
       .then((data) => {
-        const matched = data.filter((a) => symbolsFromURL.includes(a.symbol));
-        const matchedLabels = matched.map((a) => a.label);
-        setAncestryOptions(matchedLabels);
-        setAncestryMap(matched); // Guarda symbol y label pareados
-        setMainAncestry(matchedLabels[0] || "");
-        console.log("Opciones de ancestría cargadas:", matchedLabels);
+        if (symbolsFromURL.length > 0) {
+          const matched = data.filter((a) => symbolsFromURL.includes(a.symbol));
+          const matchedLabels = matched.map((a) => a.label);
+          setAncestryOptions(matchedLabels);
+          setAncestryMap(matched);
+          setMainAncestry(matchedLabels[0] || "");
+        } else {
+          const allLabels = data.map((a) => a.label);
+          setAncestryOptions(allLabels);
+          setAncestryMap(data);
+          setMainAncestry(allLabels[0] || "");
+        }
       })
       .catch((err) => console.error("Error al cargar ancestrías:", err));
   }, [symbolsFromURL]);
 
-
   const handleSubmit = async () => {
     try {
-      // Extraer solo los items de tipo trait
-      const selectedTraits = selectedItems.filter(item => item.type === "trait");
+      setLoading(true);
+      setHasSearched(false);
+      setResults([]); // limpiar resultados anteriores si deseas
 
-      // Mapear a los IDs estandarizados (onto_id)
       const selectedTraitIds = selectedItems
         .filter(item => item.type === "trait")
         .map(item => item.onto_id)
@@ -78,8 +79,24 @@ export default function PrioritizationPage() {
         (a) => a.label === mainAncestry
       )?.symbol;
 
-      console.log("🧬 selectedTraitIds:", selectedTraitIds);
-      console.log("🌍 ancestrySymbol:", ancestrySymbol);
+      // Si no hay ancestría seleccionada pero sí traits, sugerir ancestrías desde backend
+      if (!ancestrySymbol && selectedTraitIds.length > 0) {
+        const res = await fetch(
+          `${process.env.NEXT_PUBLIC_API_URL}/api/prioritization/suggest-ancestries`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ selectedTraitIds }),
+          }
+        );
+
+        if (!res.ok) throw new Error("Error al sugerir ancestrías");
+
+        const ancestrySuggestions = await res.json();
+        setAncestryOptions(ancestrySuggestions.map(a => a.label));
+        setAncestryMap(ancestrySuggestions);
+        return; // Salimos porque aún no se selecciona una ancestría
+      }
 
       if (!selectedTraitIds.length || !ancestrySymbol) {
         console.error("Traits o ancestría no válidas.");
@@ -90,20 +107,14 @@ export default function PrioritizationPage() {
         `${process.env.NEXT_PUBLIC_API_URL}/api/prioritization/prioritize`,
         {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            selectedTraitIds,
-            mainAncestrySymbol: ancestrySymbol,
-          }),
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ selectedTraitIds, mainAncestrySymbol: ancestrySymbol }),
         }
       );
 
       if (!response.ok) throw new Error("Error en la priorización");
 
       const data = await response.json();
-
       const transformed = data.map((model) => ({
         pgscId: model.pgscId,
         trait_label: model.name,
@@ -118,12 +129,15 @@ export default function PrioritizationPage() {
         pubmed_id: model.pubmed_id,
       }));
 
-
       setResults(transformed);
     } catch (err) {
       console.error("Falló la priorización:", err);
+    } finally {
+      setLoading(false);
+      setHasSearched(true);
     }
   };
+
 
 
   return (
@@ -132,20 +146,29 @@ export default function PrioritizationPage() {
 
       <div className="flex flex-col sm:flex-row items-start sm:items-end gap-4">
         <div>
-          <label className="font-semibold mb-1 block">Main Ancestry:</label>
           <MainAncestrySelect
             value={mainAncestry}
             onChange={setMainAncestry}
             options={ancestryOptions}
           />
         </div>
-        <Button onClick={handleSubmit} className="mt-1 sm:mt-0">
+        <Button onClick={handleSubmit} className="bg-green-600 hover:bg-blue-700">
           Run Prioritization
         </Button>
       </div>
 
+      {loading && (
+        <p className="text-gray-600 font-medium">Loading models...</p>
+      )}
 
-      {results.length > 0 && (
+      {!loading && hasSearched && results.length === 0 && (
+        <p className="text-red-600 font-semibold">
+
+          No models were found for the traits and ancestors selected according to the prioritization criterion.
+        </p>
+      )}
+
+      {!loading && results.length > 0 && (
         <div className="space-y-6">
           <PrioritizationTableHTML models={results} />
         </div>

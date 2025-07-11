@@ -6,7 +6,7 @@ import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { PieChart, Pie, Cell, Tooltip, Legend } from "recharts";
 import MiniDonut from "./MiniDonut";
-
+import { Info } from "lucide-react";
 
 /*const columns = [
   { name: "Model ID", uid: "pgs_id" },
@@ -42,7 +42,8 @@ export default function PrioritizationTableHTML({ models = [] }) {
   const [page, setPage] = useState(1);
   const [data, setData] = useState(models);
   const [selectedRows, setSelectedRows] = useState(() =>
-    new Set(models.slice(0, 10).map((item) => item.pgscId))
+    new Set()
+    //new Set(models.slice(0, 10).map((item) => item.pgscId))
   );
   const [showChart, setShowChart] = useState(false);
   const [chartData, setChartData] = useState([]);
@@ -160,9 +161,11 @@ export default function PrioritizationTableHTML({ models = [] }) {
       return { key, direction: 'asc' };
     });
   };
-  const renderRow = (item) => (
-    <>
-      <td className="px-4 py-3">
+  const renderRow = (item) => {
+    const cells = [];
+
+    cells.push(
+      <td key="checkbox" className="px-4 py-3">
         <input
           type="checkbox"
           aria-label={`Select row ${item.pgscId}`}
@@ -171,8 +174,12 @@ export default function PrioritizationTableHTML({ models = [] }) {
           className="form-checkbox h-4 w-4 text-blue-600"
         />
       </td>
-      {columns.map((col) => (
+    );
+
+    columns.forEach((col) => {
+      cells.push(
         <td key={col.uid} className="px-4 py-3 text-gray-800">
+          {/* ...tu lógica condicional... */}
           {col.uid === "pgscId" ? (
             <a
               href={`https://www.pgscatalog.org/score/${item[col.uid]}/`}
@@ -211,15 +218,15 @@ export default function PrioritizationTableHTML({ models = [] }) {
                 View
               </button>
             </div>
-
           ) : (
             item[col.uid] || "—"
-          )
-          }
+          )}
         </td>
-      ))}
-    </>
-  );
+      );
+    });
+
+    return cells;
+  };
 
 
 
@@ -228,10 +235,55 @@ export default function PrioritizationTableHTML({ models = [] }) {
   return (
 
     <div className="p-6 bg-white rounded-2xl shadow-md border border-gray-200">
-      <h2 className="text-xl font-semibold text-gray-800 mb-4">PRS Models Prioritization</h2>
+      <div className="flex justify-between items-center mb-4">
+        {/* Título + Info izquierda */}
+        <div className="flex items-center gap-2">
+          <h2 className="text-xl font-semibold text-gray-800">PRS Models Prioritization</h2>
+          <span className="relative group align-middle inline-block">
+            <Info size={20} className="text-gray-500 cursor-pointer" />
+            <div className="absolute left-1/2 -translate-x-1/2 top-full mt-2 w-64 px-3 py-2 bg-black text-white text-sm rounded shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-300 z-50 pointer-events-none">
+              Puedes ordenar los modelos por <b>Trait</b>, <b>OR</b>, <b>AUC</b> y <b>Año</b>. Si no hay orden activo, puedes reordenarlos manualmente.
+            </div>
+          </span>
+        </div>
+
+        {/* Reset order + Info derecha */}
+        <div className="flex items-center gap-2">
+          {sortConfig.key && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setSortConfig({ key: null, direction: 'asc' })}
+                className="text-sm text-blue-600 hover:underline"
+              >
+                Reset order
+              </button>
+              <div className="relative ml-2 group inline-block">
+                <Info size={18} className="text-gray-500 cursor-pointer" />
+                <div
+                  className="hidden group-hover:block absolute left-1/2 -translate-x-1/2 top-full mt-2 w-64 px-3 py-2 bg-black text-white text-sm rounded shadow-lg z-50"
+                >
+                  El reordenamiento manual solo está disponible cuando no hay orden activo. (DIANA)
+                </div>
+              </div>
+
+            </div>
+          )}
+
+        </div>
+      </div>
+
+
       <DragDropContext onDragEnd={handleDragEnd}>
         <table className="w-full text-sm text-left rounded-xl overflow-hidden border-separate border-spacing-0">
-          <thead className="bg-gray-100 text-gray-800 text-sm font-medium">
+          <thead className="bg-gray-100 text-gray-800 text-sm font-semibold">
+            <tr className="bg-gray-200 border-b border-gray-200">
+              <th className="px-4 py-2 border-b border-gray-300"></th>
+              <th colSpan={2} className="px-4 py-2 border-b border-gray-300 text-center">Model</th>
+              <th colSpan={2} className="px-4 py-2 border-b border-gray-300 text-center">Model Development</th>
+              <th colSpan={2} className="px-4 py-2 border-b border-gray-300 text-center">Model Evaluation</th>
+              <th colSpan={3} className="px-4 py-2 border-b border-gray-300 text-center">Performance Metrics</th>
+              <th colSpan={2} className="px-4 py-2 border-b border-gray-300 text-center">Publication</th>
+            </tr>
             <tr>
               <th className="px-4 py-3 border-b border-gray-200">
                 <input
@@ -245,12 +297,12 @@ export default function PrioritizationTableHTML({ models = [] }) {
                 const isSortable = ['trait_label', 'orScore', 'aucScore', 'year'].includes(col.uid);
                 const isActive = sortConfig.key === col.uid;
                 const directionSymbol = isActive ? (sortConfig.direction === 'asc' ? '↑' : '↓') : '';
-
                 return (
                   <th
                     key={col.uid}
-                    className={`px-4 py-3 border-b border-gray-200 cursor-pointer select-none ${isSortable ? 'hover:text-blue-600' : ''
-                      }`}
+                    className={`px-4 py-3 border-b border-gray-200 cursor-pointer select-none
+            ${isSortable ? 'underline text-gray-800 hover:text-gray-900' : 'text-gray-700'}
+          `}
                     onClick={() => isSortable && handleSort(col.uid)}
                   >
                     {col.name} {directionSymbol}
@@ -260,11 +312,13 @@ export default function PrioritizationTableHTML({ models = [] }) {
             </tr>
           </thead>
 
+
+
           {!sortConfig.key ? (
             // ✅ DRAG AND DROP habilitado
             <Droppable droppableId="pgs-table" direction="vertical">
               {(provided) => (
-                <tbody ref={provided.innerRef} {...provided.droppableProps} className="bg-white divide-y divide-gray-100">
+                <tbody ref={provided.innerRef} {...provided.droppableProps} className="divide-y divide-gray-300">
                   {displayedData.map((item, index) => (
                     <Draggable key={item.pgscId} draggableId={item.pgscId} index={index}>
                       {(dragProvided) => (
@@ -272,7 +326,7 @@ export default function PrioritizationTableHTML({ models = [] }) {
                           ref={dragProvided.innerRef}
                           {...dragProvided.draggableProps}
                           {...dragProvided.dragHandleProps}
-                          className="hover:bg-gray-50 transition"
+                          className="even:bg-gray-100 hover:bg-gray-110 transition"
                         >
                           {renderRow(item)}
                         </tr>
@@ -285,9 +339,9 @@ export default function PrioritizationTableHTML({ models = [] }) {
             </Droppable>
           ) : (
             //  ORDENAMIENTO ACTIVADO → sin drag & drop
-            <tbody className="bg-white divide-y divide-gray-100">
+            <tbody className="divide-y divide-gray-200">
               {displayedData.map((item) => (
-                <tr key={item.pgscId} className="hover:bg-gray-50 transition">
+                <tr key={item.pgscId} className="even:bg-gray-100 hover:bg-gray-100 transition">
                   {renderRow(item)}
                 </tr>
               ))}
@@ -302,20 +356,11 @@ export default function PrioritizationTableHTML({ models = [] }) {
           Showing {displayedData.length} of {data.length} results
         </span>
         <div className="flex-1 flex justify-center">
-          
+
 
         </div>
       </div>
-      {sortConfig.key && (
-        <div className="mt-2 text-sm">
-          <button
-            onClick={() => setSortConfig({ key: null, direction: 'asc' })}
-            className="text-blue-600 hover:underline"
-          >
-            Reset order
-          </button>
-        </div>
-      )}
+
 
       <div className="mt-2 text-sm text-gray-600">
         {selectedRows.size > 0
@@ -324,16 +369,18 @@ export default function PrioritizationTableHTML({ models = [] }) {
       </div>
 
       {/* ⬇ Agrega aquí el botón */}
-      {selectedRows.size > 0 && (
-        <div className="mt-6 flex justify-center">
-          <button
-            onClick={handleRunAnalysis}
-            className="bg-green-600 text-white px-4 py-2 rounded hover:bg-blue-700"
-          >
-            Run Analysis
-          </button>
-        </div>
-      )}
+      <div className="mt-6 flex justify-center">
+        <button
+          onClick={handleRunAnalysis}
+          disabled={selectedRows.size === 0 || selectedRows.size > 10}
+          className={`px-4 py-2 rounded text-white transition ${selectedRows.size === 0 || selectedRows.size > 10
+            ? "bg-gray-400 cursor-not-allowed"
+            : "bg-green-600 hover:bg-blue-700"
+            }`}
+        >
+          Run Analysis
+        </button>
+      </div>
 
       {showChart && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">

@@ -4,11 +4,11 @@ import { useState, useEffect, useMemo } from "react";
 import { Card } from "@/components/ui/Card";
 import Trait from "./Trait";
 import CustomToggleButton from "@/components/ui/CustomToggleButton";
-import * as HoverCard from "@radix-ui/react-hover-card";
 import TraitChart from "./TraitChart";
 import LargeCard from "@/components/ui/LargeCard";
-import { ResponsiveContainer } from "recharts";
 import BroadAncestrySelector from "@/components/MultiSelect";
+import GoToPrioritizationButton from "@/components/ui/GoToPrioritizationButton";
+import CancelButton from "@/components/ui/CancelButton";
 
 const colors = [
   "#8e44ad", "#2980b9", "#2ecc71", "#e74c3c", "#f1c40f",
@@ -17,101 +17,62 @@ const colors = [
   "#2c3e50", "#bdc3c7", "#95a5a6", "#e84393", "#fdcb6e"
 ];
 
-
 export default function TraitSelector({ onAncestriesChange, selectedItems, setSelectedItems }) {
   const [selectedCategory, setSelectedCategory] = useState(null);
-  const [isClient, setIsClient] = useState(false);
-  const [traits, setTraits] = useState({});
   const [categories, setCategories] = useState([]);
+  const [traits, setTraits] = useState({});
   const [selectedAncestries, setSelectedAncestries] = useState([]);
 
   useEffect(() => {
-    setIsClient(true);
-  }, []);
+    const fetchGroupedData = async () => {
+      try {
+        const query = selectedAncestries.length
+          ? `?ancestries=${selectedAncestries.join(",")}`
+          : "";
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/trait-categories/grouped${query}`);
+        const data = await res.json();
 
-  useEffect(() => {
-    if (selectedAncestries.length === 0) {
-      fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/traits`)
-        .then((res) => res.json())
-        .then((data) => {
-          const traitMap = {};
-          data.forEach((trait) => {
+        const traitMap = {};
+        const preparedCategories = data.map((cat, index) => {
+          cat.traits.forEach((trait) => {
             traitMap[trait.id] = {
               id: trait.id,
               name: trait.label,
-              pgss: trait.pgss,
+              pgss: trait.prsCount,
               description: trait.description,
               URL: trait.URL,
-              onto_id: trait.efoId || trait.mondoId || trait.hpoId || trait.orphaId || "N/A",
+              onto_id:
+                trait.efoId ||
+                trait.mondoId ||
+                trait.hpoId ||
+                trait.orphaId ||
+                trait.hpoId ||
+                "N/A",
             };
+            console.log("📦 Datos crudos desde backend:", data);
+
           });
-          setTraits(traitMap);
-        })
-        .catch((err) => console.error("Error cargando traits:", err));
-    }
-  }, [selectedAncestries]);
 
-  useEffect(() => {
-    if (selectedAncestries.length === 0) {
-      fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/trait-categories`)
-        .then((res) => res.json())
-        .then((data) => {
-          const colored = data.map((cat, index) => ({
+
+          return {
             ...cat,
+            id: cat.label,
             color: colors[index % colors.length],
-            name: cat.name,
-            value: cat.pgss
-          }));
-          setCategories(colored);
-        })
-        .catch((err) => console.error("Error cargando trait categories:", err));
-    }
-  }, [selectedAncestries]);
-
-  useEffect(() => {
-    if (selectedAncestries.length > 0) {
-      const fetchData = async () => {
-        try {
-          const res = await fetch(
-            `${process.env.NEXT_PUBLIC_API_URL}/api/trait-categories/by-ancestry?ancestries=${selectedAncestries.join(",")}`
-          );
-          const data = await res.json();
-
-          const colored = data.map((cat, index) => ({
-            ...cat,
-            color: colors[index % colors.length],
+            pgss: cat.totalPrs,
             name: cat.label,
-          }));
-          setCategories(colored);
+            traits: [...new Set(cat.traits.map((t) => t.id))]   // 👈 evita duplicados
+          };
 
-          const allTraitIds = data.flatMap(cat => cat.traits);
-          const uniqueIds = [...new Set(allTraitIds)];
+        });
 
-          if (uniqueIds.length > 0) {
-            const traitsRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/traits/by-ids?ids=${uniqueIds.join(",")}`);
-            const traitsData = await traitsRes.json();
+        setCategories(preparedCategories);
+        setTraits(traitMap);
+      } catch (error) {
+        console.error("❌ Error cargando datos agrupados:", error);
+      }
+    };
 
-            const traitMap = {};
-            traitsData.forEach((trait) => {
-              traitMap[trait.id] = {
-                id: trait.id,
-                name: trait.label,
-                pgss: trait.pgss,
-                description: trait.description,
-                URL: trait.URL,
-                onto_id: trait.efoId || trait.mondoId || trait.hpoId || trait.orphaId || "N/A",
-              };
-            });
-            setTraits(traitMap);
-          } else {
-            setTraits({});
-          }
-        } catch (err) {
-          console.error("Error al cargar trait categories y traits:", err);
-        }
-      };
-      fetchData();
-    }
+    fetchGroupedData();
   }, [selectedAncestries]);
 
   const isItemSelected = (id, type) =>
@@ -123,7 +84,6 @@ export default function TraitSelector({ onAncestriesChange, selectedItems, setSe
     setSelectedCategory((prev) => (prev === categoryId ? null : categoryId));
     setSelectedItems((prev) => {
       const withoutCategory = prev.filter((item) => item.type !== "category");
-      const withoutTraits = prev.filter((item) => item.type !== "trait");
 
       if (isItemSelected(categoryId, "category")) {
         return withoutCategory;
@@ -162,10 +122,8 @@ export default function TraitSelector({ onAncestriesChange, selectedItems, setSe
     }));
   }, [categories]);
 
-
   return (
     <div className="flex flex-col gap-6 w-full">
-      {/* Select Ancestry */}
       <div className="w-full max-w-xl">
         <BroadAncestrySelector
           onAncestriesChange={(selected) => {
@@ -184,21 +142,14 @@ export default function TraitSelector({ onAncestriesChange, selectedItems, setSe
         />
       </div>
 
-      {/* Grid con gráfico + categorías + traits */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 w-full">
-        {/* Gráfico */}
-        {isClient && (
-          <div className="flex flex-col items-center justify-center min-h-[240px] md:min-h-[300px]">
-            <h3 className="text-lg font-semibold text-gray-800 mb-4 text-center">
-              Trait Category Distribution
-            </h3>
+        <div className="flex flex-col items-center justify-center min-h-[240px] md:min-h-[300px]">
+          <h3 className="text-lg font-semibold text-gray-800 mb-4 text-center">
+            Trait Category Distribution
+          </h3>
+          <TraitChart data={chartData} />
+        </div>
 
-
-            <TraitChart data={chartData} />
-          </div>
-        )}
-
-        {/* Categorías */}
         <Card>
           <h2 className="text-base font-bold mb-4 text-gray-800">Trait Category</h2>
           <div className="max-h-[320px] overflow-y-auto pr-2 space-y-2">
@@ -217,8 +168,6 @@ export default function TraitSelector({ onAncestriesChange, selectedItems, setSe
           </div>
         </Card>
 
-
-        {/* Traits */}
         {selectedCategory && (
           <Trait
             traits={categories
@@ -231,48 +180,61 @@ export default function TraitSelector({ onAncestriesChange, selectedItems, setSe
         )}
       </div>
 
-      {/* Tarjeta final con selección */}
-      <LargeCard title="Selected Trait">
-        {selectedItems.filter((item) => item.type === "trait").length === 0 ? (
-          <p className="text-sm text-gray-500">None</p>
-        ) : (
-          <>
-            <ul className="max-h-48 overflow-y-auto pr-2 space-y-2">
-              {selectedItems
-                .filter((item) => item.type === "trait")
-                .map((item) => (
-                  <li
-                    key={`trait-${item.id}`}
-                    className="flex justify-between items-center bg-gray-100 px-3 py-2 rounded-md shadow-sm"
-                  >
-                    <span className="text-sm">🧬 {item.name}</span>
-                    <button
-                      onClick={() =>
-                        setSelectedItems((prev) =>
-                          prev.filter(
-                            (i) => !(i.id === item.id && i.type === "trait")
-                          )
-                        )
-                      }
-                      className="text-red-500 hover:text-red-700 text-xs font-medium"
-                    >
-                      REMOVE
-                    </button>
-                  </li>
-                ))}
-            </ul>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 w-full">
+        <div className="md:col-span-3">
+          <div className="flex flex-col md:flex-row gap-4 items-start justify-between">
+            <LargeCard title="Selected Trait">
+              {selectedItems.filter((item) => item.type === "trait").length === 0 ? (
+                <p className="text-sm text-gray-500">None</p>
+              ) : (
+                <>
+                  <ul className="max-h-48 overflow-y-auto pr-2 space-y-2">
+                    {selectedItems
+                      .filter((item) => item.type === "trait")
+                      .map((item) => (
+                        <li
+                          key={`trait-${item.id}`}
+                          className="flex justify-between items-center bg-gray-100 px-3 py-2 rounded-md shadow-sm"
+                        >
+                          <span className="text-sm">🧬 {item.name}</span>
+                          <button
+                            onClick={() =>
+                              setSelectedItems((prev) =>
+                                prev.filter(
+                                  (i) => !(i.id === item.id && i.type === "trait")
+                                )
+                              )
+                            }
+                            className="text-red-500 hover:text-red-700 text-xs font-medium"
+                          >
+                            REMOVE
+                          </button>
+                        </li>
+                      ))}
+                  </ul>
 
-            <hr className="my-4 border-gray-300" />
+                  <hr className="my-4 border-gray-300" />
 
-            <div className="text-right text-sm font-semibold text-gray-700">
-              Total models:{" "}
-              {selectedItems
-                .filter((item) => item.type === "trait")
-                .reduce((acc, item) => acc + (traits[item.id]?.pgss || 0), 0)}
+                  <div className="text-right text-sm font-semibold text-gray-700">
+                    Total models:{" "}
+                    {selectedItems
+                      .filter((item) => item.type === "trait")
+                      .reduce((acc, item) => acc + (traits[item.id]?.pgss || 0), 0)}
+                  </div>
+                </>
+              )}
+            </LargeCard>
+
+            {/* Botones alineados al lado derecho del recuadro */}
+            <div className="flex flex-row gap-6 justify-end mt-4">
+              <CancelButton />
+              <GoToPrioritizationButton selectedItems={selectedItems} />
             </div>
-          </>
-        )}
-      </LargeCard>
+          </div>
+        </div>
+      </div>
+
+
     </div>
   );
 }

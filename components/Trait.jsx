@@ -18,9 +18,19 @@ export default function Trait({ traits, onTraitClick, selectedItems }) {
       });
     }
   };
+  const getOntologyURL = (id) => {
+    if (!id) return null;
+    if (id.startsWith("EFO_"))
+      return `https://www.ebi.ac.uk/ols/ontologies/efo/terms?iri=http://www.ebi.ac.uk/efo/${id}`;
+    if (id.startsWith("MONDO_"))
+      return `https://www.ebi.ac.uk/ols/ontologies/mondo/terms?iri=http://purl.obolibrary.org/obo/${id}`;
+    if (id.startsWith("HP:"))
+      return `https://hpo.jax.org/app/browse/term/${id}`;
+    if (id.startsWith("ORPHA:"))
+      return `https://www.orpha.net/consor/cgi-bin/OC_Exp.php?Lng=EN&Expert=${id.replace("ORPHA:", "")}`;
+    return null;
+  };
 
-
-  
 
   const isTraitSelected = (id) =>
     selectedItems?.some((item) => item.id === id && item.type === "trait");
@@ -33,6 +43,8 @@ export default function Trait({ traits, onTraitClick, selectedItems }) {
         {/* Scroll aplicado aquí correctamente */}
         <div className="max-h-80 overflow-y-auto pr-2 space-y-2">
           {traits.map((trait) => {
+            console.log("🔍 Trait:", trait);
+
             const isSelected = isTraitSelected(trait.id);
 
             return (
@@ -63,14 +75,20 @@ export default function Trait({ traits, onTraitClick, selectedItems }) {
                   <div className="font-bold text-base mb-1">{trait.name}</div>
                   <div className="text-sm text-gray-600 mb-1">
                     ID:{" "}
-                    <a
-                      href={trait.URL || "#"}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-blue-600 hover:underline"
-                    >
-                      {trait.onto_id || "N/A"}
-                    </a>
+                    {trait.onto_id ? (
+                      <a
+                        href={getOntologyURL(trait.onto_id)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-600 hover:underline"
+                      >
+                        {trait.onto_id}
+                      </a>
+                    ) : (
+                      "N/A"
+                    )}
+
+
                   </div>
                   <div className="text-sm text-gray-600">
                     Description: {trait.description || "No description available"}

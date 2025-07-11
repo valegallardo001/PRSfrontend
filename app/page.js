@@ -11,7 +11,6 @@ export default function Home() {
   const [ancestries, setAncestries] = useState([]); // ✅ Declaración del estado
   const [selectedItems, setSelectedItems] = useState([]);
   useEffect(() => {
-    console.log("📦 selectedItems:", selectedItems);
   }, [selectedItems]);
 
   return (
@@ -32,10 +31,7 @@ export default function Home() {
         </div>
       </main>
 
-      <div className="col-span-12 sm:col-span-10 flex justify-end gap-6 mt-2">
-        <CancelButton />
-        <GoToPrioritizationButton selectedItems={selectedItems} />
-      </div>
+      
     </div>
   );
 }
