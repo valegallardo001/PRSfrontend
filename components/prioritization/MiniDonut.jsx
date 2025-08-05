@@ -3,7 +3,20 @@
 
 import { PieChart, Pie, Cell } from "recharts";
 
-const COLORS = ["#0088FE", "#00C49F", "#FFBB28", "#FF8042", "#A28EF4"];
+const ancestryColorMap = {
+  AFR: "#fdd835", // African
+  AMR: "#ef5350", // Hispanic or Latin American
+  ASN: "#6d4c41", // Additional Asian Ancestries
+  EAS: "#66bb6a", // East Asian
+  EUR: "#42a5f5", // European
+  GME: "#00acc1", // Greater Middle Eastern
+  MAE: "#f48fb1", // Multi-ancestry (including European)
+  MAO: "#f57c00", // Multi-ancestry (excluding European)
+  NR: "#bdbdbd", // Not Reported
+  OTH: "#9e9e9e", // Additional Diverse Ancestries
+  SAS: "#8e24aa", // South Asian
+
+};
 
 export default function MiniDonut({ data, width = 50, height = 50 }) {
   return (
@@ -18,8 +31,11 @@ export default function MiniDonut({ data, width = 50, height = 50 }) {
         paddingAngle={0}
         stroke="none"
       >
-        {data.map((_, index) => (
-          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+        {data.map((entry, index) => (
+          <Cell
+            key={`cell-${index}`}
+            fill={ancestryColorMap[entry.symbol] || ancestryColorMap.OTHER}
+          />
         ))}
       </Pie>
     </PieChart>

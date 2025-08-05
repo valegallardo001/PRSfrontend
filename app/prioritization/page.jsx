@@ -10,7 +10,7 @@ export default function PrioritizationPage() {
   const [traits, setTraits] = useState([]);
   const [symbolsFromURL, setSymbolsFromURL] = useState([]);
 
-  const [mainAncestry, setMainAncestry] = useState("");
+  const [mainAncestry, setMainAncestry] = useState(null);
   const [ancestryOptions, setAncestryOptions] = useState([]);
   const [ancestryMap, setAncestryMap] = useState([]);
 
@@ -19,6 +19,7 @@ export default function PrioritizationPage() {
 
   const [loading, setLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
 
   // Obtener traits y ancestrías desde la URL
   useEffect(() => {
@@ -36,9 +37,11 @@ export default function PrioritizationPage() {
         id,
         type: "trait",
         name: "",
+        label: "",
         onto_id: id,
       }))
       : [];
+    console.log("🧬 traitItemsFromURL:", traitItemsFromURL);
 
     setSelectedItems(traitItemsFromURL);
   }, []);
@@ -63,6 +66,33 @@ export default function PrioritizationPage() {
       })
       .catch((err) => console.error("Error al cargar ancestrías:", err));
   }, [symbolsFromURL]);
+
+  // Enriquecer los traits con label y name después de cargarlos desde la URL
+  useEffect(() => {
+    if (traits.length > 0) {
+      fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/traits/by-ids`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: traits }),
+      })
+        .then((res) => res.json())
+        .then((fetchedTraits) => {
+          const enriched = traits.map((id) => {
+            const match = fetchedTraits.find((t) => t.id.toString() === id);
+            return {
+              id,
+              type: "trait",
+              name: match?.description || "",
+              label: match?.label || "",
+              onto_id: id,
+            };
+          });
+          setSelectedItems(enriched);
+        })
+        .catch((err) => console.error("Error al enriquecer traits:", err));
+    }
+  }, [traits]);
+
 
   const handleSubmit = async () => {
     try {
@@ -113,9 +143,33 @@ export default function PrioritizationPage() {
       );
 
       if (!response.ok) throw new Error("Error en la priorización");
-
       const data = await response.json();
+
+      // ⚠️ No se encontró ningún modelo
+      if (data.length === 0) {
+        const selectedTrait = selectedItems.find(item => item.type === "trait");
+        const traitLabel = selectedTrait?.label || selectedTrait?.name || "this trait";
+        const ancestryLabel = mainAncestry || "this ancestry";
+
+        setErrorMessage(`No validated ${traitLabel} models found for ${ancestryLabel} ancestry.`);
+        setResults([]);
+        return;
+      }
+
+      // ⚠️ Algunos modelos no cumplen con la condición de evaluación OR + AUC/C-index
+      const invalidModels = data.filter(model => {
+        return model.or == null || (model.auroc == null && model.c_index == null);
+      });
+
+      if (invalidModels.length > 0) {
+        setErrorMessage(`Warning: ${invalidModels.length} model(s) do not meet the minimum evaluation criteria (OR and AUC or C-index). They may not be reliable.`);
+      } else {
+        setErrorMessage(""); // Limpiar si todo está bien
+      }
+
+
       const transformed = data.map((model) => ({
+        modelId: model.modelId || model.id,
         pgscId: model.pgscId,
         trait_label: model.name,
         ancestry: model.ancestry,
@@ -123,8 +177,8 @@ export default function PrioritizationPage() {
         dev_sample: model.dev_sample,
         eval_ancestry: model.eval_ancestry,
         reported_trait: model.reported_trait,
-        orScore: model.orScore?.toString() || "—",
-        aucScore: model.aucScore?.toString() || "—",
+        or: model.or === "—" ? null : parseFloat(model.or),
+        auroc: model.auroc === "—" ? null : parseFloat(model.auroc),
         year: model.year,
         pubmed_id: model.pubmed_id,
       }));
@@ -163,10 +217,10 @@ export default function PrioritizationPage() {
 
       {!loading && hasSearched && results.length === 0 && (
         <p className="text-red-600 font-semibold">
-
-          No models were found for the traits and ancestors selected according to the prioritization criterion.
+          {errorMessage || "No models were found for the selected traits and ancestry."}
         </p>
       )}
+
 
       {!loading && results.length > 0 && (
         <div className="space-y-6">

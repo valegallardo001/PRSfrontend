@@ -20,18 +20,21 @@ export default function BroadAncestrySelector({ onAncestriesChange, setSelectedI
 
   const handleSelectionChange = (keys) => {
     const ancestryArray = Array.from(keys);
-    if (ancestryArray.length <= 4) {
+    if (ancestryArray.length <= 100) {
       setSelectedAncestries(new Set(ancestryArray));
       onAncestriesChange?.(ancestryArray);
     }
   };
-
   const resetSelection = () => {
-    const empty = new Set();
-    setSelectedAncestries(empty);
-    onAncestriesChange?.([]);
-    setSelectedItems?.([]);
+    setSelectedAncestries(new Set());           // Resetear ancestrías seleccionadas
+    setSelectedItems([]);                       // Resetear traits seleccionados
+    onAncestriesChange?.([]);                   // Notificar al padre que no hay ancestrías seleccionadas
   };
+  const summarizedLabel =
+    selectedAncestries.size > 0
+      ? Array.from(selectedAncestries).slice(0, 1).join(", ") + (selectedAncestries.size > 3 ? "..." : "")
+      : "ALL";
+
 
   return (
     <div className="w-[400px] p-5">
@@ -49,13 +52,22 @@ export default function BroadAncestrySelector({ onAncestriesChange, setSelectedI
 
           <Select
             aria-label="Select ancestry groups"
-            placeholder="None"
-            className="w-full h-12 truncate bg-gray-600 text-white border border-gray-600 rounded-lg shadow-md"
+            placeholder="ALL"
             selectionMode="multiple"
             selectedKeys={selectedAncestries}
             onSelectionChange={handleSelectionChange}
+            className="w-full max-w-[400px] h-12 bg-gray-600 text-white border border-gray-600 rounded-lg shadow-md"
             listboxProps={{
               className: "bg-gray-600 border border-gray-600 rounded-lg shadow-md text-white max-h-40 overflow-auto",
+            }}
+            renderValue={() => {
+              const labels = options
+                .filter((item) => selectedAncestries.has(item.symbol))
+                .map((item) => item.label);
+
+              if (labels.length === 0) return "ALL";
+              if (labels.length <= 2) return labels.join(", ");
+              return `${labels.slice(0, 1).join(", ")}...`;
             }}
           >
             {options.map((item) => (
@@ -65,15 +77,16 @@ export default function BroadAncestrySelector({ onAncestriesChange, setSelectedI
                 aria-label={item.label}
                 className={({ isSelected }) =>
                   clsx(
-                    "px-4 py-2 rounded-md transition",
+                    "px-4 py-2 rounded-md transition truncate max-w-full",
                     isSelected || selectedAncestries.has(item.symbol)
                       ? "bg-red-600 text-white font-semibold"
                       : "bg-white text-gray-800 hover:bg-gray-100"
                   )
                 }
               >
-                {item.label}
+                <span className="block truncate">{item.label}</span>
               </SelectItem>
+
             ))}
           </Select>
 

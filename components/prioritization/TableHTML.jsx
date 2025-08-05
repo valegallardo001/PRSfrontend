@@ -30,8 +30,8 @@ const columns = [
   { name: "N Indiv.", uid: "dev_sample" },
   { name: "Evaluated Ancestry", uid: "eval_ancestry" },
   { name: "Reported Trait", uid: "reported_trait" },
-  { name: "Risk Association (OR)", uid: "orScore" },
-  { name: "Discriminatory Power (AUC)", uid: "aucScore" },
+  { name: "Risk Association (OR)", uid: "or" },
+  { name: "Discriminatory Power (AUROC/C-index)", uid: "auroc" },
   { name: "Year", uid: "year" },
   { name: "PMID", uid: "pubmed_id" },
 ];
@@ -48,14 +48,20 @@ export default function PrioritizationTableHTML({ models = [] }) {
   const [showChart, setShowChart] = useState(false);
   const [chartData, setChartData] = useState([]);
 
-  console.log(";) Ejemplo modelo:", models[0]);
+
 
   useEffect(() => {
-    setData(models);
+    const transformed = models.map((m) => ({
+      ...m,
+      modelId: m.modelId || m.id || undefined, // 🔧 aquí forzamos que tenga modelId
+      auroc: typeof m.auroc === "number" && !isNaN(m.auroc) ? m.auroc : null,
+      or: typeof m.or === "number" && !isNaN(m.or) ? m.or : null,
+    }));
+    setData(transformed);
   }, [models]);
+  ;
 
-  console.log("📊 Modelos recibidos:", models);
-  console.log("🔍 Ejemplo modelo:", models[0]);
+
   const parseAncestryData = (ancestryString) => {
     return ancestryString
       .split(", ")
@@ -65,6 +71,7 @@ export default function PrioritizationTableHTML({ models = [] }) {
           const [_, symbol, label, value] = match;
           return {
             name: `${symbol} (${label})`,
+            symbol,
             value: parseFloat(value),
           };
         }
@@ -72,26 +79,65 @@ export default function PrioritizationTableHTML({ models = [] }) {
       })
       .filter(Boolean);
   };
-  const handleRunAnalysis = () => {
-    const selectedModels = data.filter((model) => selectedRows.has(model.pgscId));
+  const handleRunAnalysis = async () => {
+    try {
+      console.log("🧩 Datos originales en `data`:", data);
+      const selectedModels = data.filter((model) => selectedRows.has(model.pgscId));
 
-    // Ejemplo: guardarlo en localStorage
-    localStorage.setItem("selectedModelsForAnalysis", JSON.stringify(selectedModels));
+      // Filtra modelos que no tengan modelId
+      const modelsToSend = selectedModels
+        .filter((model) => model.modelId) // ✅ sólo si tiene ID
+        .map((model, index) => ({
+          modelId: model.modelId,
+          position: index + 1,
+          prsResultId: null,
+        }))
 
-    // O si usas router:
-    // router.push("/analysis");
+      // ✅ Verifica los datos antes de enviar
+      console.log("📤 Modelos a enviar al backend:", modelsToSend);
 
-    // O simplemente mostrarlo por consola
-    console.log("🚀 Models ready for analysis:", selectedModels);
+      console.log("Payload completo:", {
+        prsAnalysisId: 18,
+        models: modelsToSend,
+      });
+
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/prioritization/insert-prioritized`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          prsAnalysisId: 18,
+          models: selectedModels.map((model, index) => ({
+            modelId: model.modelId || model.id, // asegúrate que este valor exista
+            position: index + 1,
+            prsResultId: null,
+          })),
+        }),
+      });
+
+      if (!response.ok) throw new Error("Error al insertar modelos priorizados");
+
+      const { inserted } = await response.json();
+      console.log(`✅ ${inserted} modelos insertados`);
+
+      const redirectURL = process.env.NEXT_PUBLIC_REDIRECT_ANALYSIS_URL || "/";
+      window.location.href = redirectURL;
+
+    } catch (error) {
+      console.error("❌ Error al ejecutar análisis:", error);
+      alert("Hubo un error al ejecutar el análisis.");
+    }
   };
 
 
-  const rowsPerPage = 30;
+
+  const rowsPerPage = 1000;
   const pages = Math.ceil(data.length / rowsPerPage);
   const startIndex = (page - 1) * rowsPerPage;
 
   const sortedData = useMemo(() => {
-    const sortableKeys = ['trait_label', 'orScore', 'aucScore', 'year'];
+    const sortableKeys = ['trait_label', 'or', 'auroc', 'year'];
     if (!sortConfig.key || !sortableKeys.includes(sortConfig.key)) {
       return data; // se permite el orden manual (drag & drop)
     }
@@ -100,7 +146,7 @@ export default function PrioritizationTableHTML({ models = [] }) {
       let valA = a[sortConfig.key];
       let valB = b[sortConfig.key];
 
-      if (sortConfig.key === 'aucScore' || sortConfig.key === 'year') {
+      if (sortConfig.key === 'auroc' || sortConfig.key === 'year') {
         valA = parseFloat(valA);
         valB = parseFloat(valB);
       }
@@ -120,14 +166,21 @@ export default function PrioritizationTableHTML({ models = [] }) {
   const handleDragEnd = (result) => {
     if (!result.destination) return;
 
+    // Índices absolutos considerando paginación
     const sourceIndex = startIndex + result.source.index;
     const destinationIndex = startIndex + result.destination.index;
 
+    // Copia completa del array de modelos
     const newData = [...data];
+
+    // Mover el modelo de source a destination
     const [movedItem] = newData.splice(sourceIndex, 1);
     newData.splice(destinationIndex, 0, movedItem);
+
+    // Actualizar el estado global con el nuevo orden
     setData(newData);
   };
+
 
   const toggleSelect = (pgscId) => {
     setSelectedRows((prev) => {
@@ -161,8 +214,26 @@ export default function PrioritizationTableHTML({ models = [] }) {
       return { key, direction: 'asc' };
     });
   };
+  const ancestryColorMap = {
+    AFR: "#fdd835", // African
+    AMR: "#ef5350", // Hispanic or Latin American
+    ASN: "#6d4c41", // Additional Asian Ancestries
+    EAS: "#66bb6a", // East Asian
+    EUR: "#42a5f5", // European
+    GME: "#00acc1", // Greater Middle Eastern
+    MAE: "#f48fb1", // Multi-ancestry (including European)
+    MAO: "#f57c00", // Multi-ancestry (excluding European)
+    NR: "#bdbdbd", // Not Reported
+    OTH: "#9e9e9e", // Additional Diverse Ancestries
+    SAS: "#8e24aa", // South Asian
+  };
+
+
+
   const renderRow = (item) => {
     const cells = [];
+
+
 
     cells.push(
       <td key="checkbox" className="px-4 py-3">
@@ -179,7 +250,7 @@ export default function PrioritizationTableHTML({ models = [] }) {
     columns.forEach((col) => {
       cells.push(
         <td key={col.uid} className="px-4 py-3 text-gray-800">
-          {/* ...tu lógica condicional... */}
+          {/* DATOS TABLA */}
           {col.uid === "pgscId" ? (
             <a
               href={`https://www.pgscatalog.org/score/${item[col.uid]}/`}
@@ -189,12 +260,21 @@ export default function PrioritizationTableHTML({ models = [] }) {
             >
               {item[col.uid]}
             </a>
-          ) : col.uid === "aucScore" ? (
-            <span className="font-medium text-green-700">{item[col.uid]}</span>
-          ) : col.uid === "orScore" ? (
-            <span className="inline-block px-2 py-1 text-xs font-semibold bg-yellow-100 text-yellow-800 rounded">
-              {item[col.uid]}
-            </span>
+          ) : col.uid === "auroc" ? (
+            typeof item[col.uid] === "number" ? (
+              <span className="font-medium text-green-700">{item[col.uid]}</span>
+            ) : (
+              "—"
+            )
+          ) : col.uid === "or" ? (
+            item[col.uid] !== "—" && item[col.uid] !== null ? (
+              <span className="inline-block px-2 py-1 text-xs font-semibold bg-yellow-100 text-yellow-800 rounded">
+                {item[col.uid]}
+              </span>
+            ) : (
+              "—"
+            )
+
           ) : col.uid === "pubmed_id" && item[col.uid] !== "—" ? (
             <a
               href={`https://pubmed.ncbi.nlm.nih.gov/${item[col.uid]}`}
@@ -229,9 +309,6 @@ export default function PrioritizationTableHTML({ models = [] }) {
   };
 
 
-
-  console.log("🧾 Datos en tabla:", models);
-
   return (
 
     <div className="p-6 bg-white rounded-2xl shadow-md border border-gray-200">
@@ -242,7 +319,7 @@ export default function PrioritizationTableHTML({ models = [] }) {
           <span className="relative group align-middle inline-block">
             <Info size={20} className="text-gray-500 cursor-pointer" />
             <div className="absolute left-1/2 -translate-x-1/2 top-full mt-2 w-64 px-3 py-2 bg-black text-white text-sm rounded shadow-lg opacity-0 group-hover:opacity-100 transition-opacity duration-300 z-50 pointer-events-none">
-              Puedes ordenar los modelos por <b>Trait</b>, <b>OR</b>, <b>AUC</b> y <b>Año</b>. Si no hay orden activo, puedes reordenarlos manualmente.
+              Puedes ordenar los modelos por <b>Trait</b>, <b>OR</b>, <b>auroc</b> y <b>Año</b>. Si no hay orden activo, puedes reordenarlos manualmente.
             </div>
           </span>
         </div>
@@ -274,81 +351,83 @@ export default function PrioritizationTableHTML({ models = [] }) {
 
 
       <DragDropContext onDragEnd={handleDragEnd}>
-        <table className="w-full text-sm text-left rounded-xl overflow-hidden border-separate border-spacing-0">
-          <thead className="bg-gray-100 text-gray-800 text-sm font-semibold">
-            <tr className="bg-gray-200 border-b border-gray-200">
-              <th className="px-4 py-2 border-b border-gray-300"></th>
-              <th colSpan={2} className="px-4 py-2 border-b border-gray-300 text-center">Model</th>
-              <th colSpan={2} className="px-4 py-2 border-b border-gray-300 text-center">Model Development</th>
-              <th colSpan={2} className="px-4 py-2 border-b border-gray-300 text-center">Model Evaluation</th>
-              <th colSpan={3} className="px-4 py-2 border-b border-gray-300 text-center">Performance Metrics</th>
-              <th colSpan={2} className="px-4 py-2 border-b border-gray-300 text-center">Publication</th>
-            </tr>
-            <tr>
-              <th className="px-4 py-3 border-b border-gray-200">
-                <input
-                  type="checkbox"
-                  checked={allVisibleSelected}
-                  onChange={toggleSelectAllVisible}
-                  className="form-checkbox h-4 w-4 text-blue-600"
-                />
-              </th>
-              {columns.map((col) => {
-                const isSortable = ['trait_label', 'orScore', 'aucScore', 'year'].includes(col.uid);
-                const isActive = sortConfig.key === col.uid;
-                const directionSymbol = isActive ? (sortConfig.direction === 'asc' ? '↑' : '↓') : '';
-                return (
-                  <th
-                    key={col.uid}
-                    className={`px-4 py-3 border-b border-gray-200 cursor-pointer select-none
+        <div className="w-full overflow-x-auto">
+          <table className="min-w-full text-sm text-left rounded-xl border-separate border-spacing-0">
+            <thead className="bg-gray-100 text-gray-800 text-xs font-semibold">
+              <tr className="bg-gray-200 border-b border-gray-200">
+                <th className="px-4 py-2 border-b border-gray-300"></th>
+                <th colSpan={2} className="px-4 py-2 border-b border-gray-300 text-center">Model</th>
+                <th colSpan={3} className="px-4 py-2 border-b border-gray-300 text-center">Model Development</th>
+                <th colSpan={2} className="px-4 py-2 border-b border-gray-300 text-center">Model Evaluation</th>
+                <th colSpan={2} className="px-4 py-2 border-b border-gray-300 text-center">Performance Metrics</th>
+                <th colSpan={2} className="px-4 py-2 border-b border-gray-300 text-center">Publication</th>
+              </tr>
+              <tr>
+                <th className="px-4 py-3 border-b border-gray-200">
+                  <input
+                    type="checkbox"
+                    checked={allVisibleSelected}
+                    onChange={toggleSelectAllVisible}
+                    className="form-checkbox h-4 w-4 text-blue-600"
+                  />
+                </th>
+                {columns.map((col) => {
+                  const isSortable = ['trait_label', 'or', 'auroc', 'year'].includes(col.uid);
+                  const isActive = sortConfig.key === col.uid;
+                  const directionSymbol = isActive ? (sortConfig.direction === 'asc' ? '↑' : '↓') : '';
+                  return (
+                    <th
+                      key={col.uid}
+                      className={`px-4 py-3 border-b border-gray-200 cursor-pointer select-none
             ${isSortable ? 'underline text-gray-800 hover:text-gray-900' : 'text-gray-700'}
           `}
-                    onClick={() => isSortable && handleSort(col.uid)}
-                  >
-                    {col.name} {directionSymbol}
-                  </th>
-                );
-              })}
-            </tr>
-          </thead>
+                      onClick={() => isSortable && handleSort(col.uid)}
+                    >
+                      {col.name} {directionSymbol}
+                    </th>
+                  );
+                })}
+              </tr>
+            </thead>
 
 
 
-          {!sortConfig.key ? (
-            // ✅ DRAG AND DROP habilitado
-            <Droppable droppableId="pgs-table" direction="vertical">
-              {(provided) => (
-                <tbody ref={provided.innerRef} {...provided.droppableProps} className="divide-y divide-gray-300">
-                  {displayedData.map((item, index) => (
-                    <Draggable key={item.pgscId} draggableId={item.pgscId} index={index}>
-                      {(dragProvided) => (
-                        <tr
-                          ref={dragProvided.innerRef}
-                          {...dragProvided.draggableProps}
-                          {...dragProvided.dragHandleProps}
-                          className="even:bg-gray-100 hover:bg-gray-110 transition"
-                        >
-                          {renderRow(item)}
-                        </tr>
-                      )}
-                    </Draggable>
-                  ))}
-                  {provided.placeholder}
-                </tbody>
-              )}
-            </Droppable>
-          ) : (
-            //  ORDENAMIENTO ACTIVADO → sin drag & drop
-            <tbody className="divide-y divide-gray-200">
-              {displayedData.map((item) => (
-                <tr key={item.pgscId} className="even:bg-gray-100 hover:bg-gray-100 transition">
-                  {renderRow(item)}
-                </tr>
-              ))}
-            </tbody>
-          )}
+            {!sortConfig.key ? (
+              // ✅ DRAG AND DROP habilitado
+              <Droppable droppableId="pgs-table" direction="vertical">
+                {(provided) => (
+                  <tbody ref={provided.innerRef} {...provided.droppableProps} className="divide-y divide-gray-300">
+                    {displayedData.map((item, index) => (
+                      <Draggable key={item.pgscId} draggableId={item.pgscId} index={index}>
+                        {(dragProvided) => (
+                          <tr
+                            ref={dragProvided.innerRef}
+                            {...dragProvided.draggableProps}
+                            {...dragProvided.dragHandleProps}
+                            className="even:bg-gray-100 hover:bg-gray-110 transition"
+                          >
+                            {renderRow(item)}
+                          </tr>
+                        )}
+                      </Draggable>
+                    ))}
+                    {provided.placeholder}
+                  </tbody>
+                )}
+              </Droppable>
+            ) : (
+              //  ORDENAMIENTO ACTIVADO → sin drag & drop
+              <tbody className="divide-y divide-gray-200">
+                {displayedData.map((item) => (
+                  <tr key={item.pgscId} className="even:bg-gray-100 hover:bg-gray-100 transition">
+                    {renderRow(item)}
+                  </tr>
+                ))}
+              </tbody>
+            )}
 
-        </table>
+          </table>
+        </div>
       </DragDropContext>
 
       <div className="flex justify-between items-center mt-5">
@@ -400,8 +479,9 @@ export default function PrioritizationTableHTML({ models = [] }) {
                 {chartData.map((entry, index) => (
                   <Cell
                     key={`cell-${index}`}
-                    fill={["#0088FE", "#00C49F", "#FFBB28", "#FF8042", "#A28EF4"][index % 5]}
+                    fill={ancestryColorMap[entry.symbol] || ancestryColorMap.OTHER}
                   />
+
                 ))}
               </Pie>
               <Tooltip />
@@ -422,6 +502,7 @@ export default function PrioritizationTableHTML({ models = [] }) {
           </div>
         </div>
       )}
+
 
     </div>
   );

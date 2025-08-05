@@ -15,7 +15,7 @@ export default function MainAncestrySelect({ value, onChange, options }) {
         selectedKeys={value ? [value] : []}
         onSelectionChange={(keys) => onChange(Array.from(keys)[0])}
         className="w-80 truncate bg-gray-800 text-white border border-gray-600 rounded-lg shadow-md"
-        placeholder="Select..."
+        placeholder="Choose one Ancestry"
         listboxProps={{
           className:
             "bg-gray-600 border border-gray-600 rounded-lg shadow-md text-white max-h-60 overflow-auto",
